@@ -1,31 +1,11 @@
-"""
-pptx_diff_single_flow.py
+# ============================================================
+# SIMPLE JUPYTER NOTEBOOK VERSION
+# ============================================================
 
-Single-flow PowerPoint diff generator.
-No custom functions are used.
+# INSTALL FIRST (RUN ONLY ONCE)
+# !pip install python-pptx
 
-Features
---------
-- Extracts all text from two PPTX files
-- Treats each PPTX as one continuous ordered document
-- Uses global sequence-aware diffing
-- Generates a NEW PowerPoint showing:
-    * Unchanged text -> black
-    * Added text     -> blue
-    * Removed text   -> red + strikethrough
-- Uses proper PowerPoint paragraphs
-- Supports automatic pagination across slides
 
-Install
--------
-pip install python-pptx
-
-Usage
------
-python pptx_diff_single_flow.py file1.pptx file2.pptx output_diff.pptx
-"""
-
-import argparse
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -37,26 +17,17 @@ from pptx.dml.color import RGBColor
 
 
 # ============================================================
-# CLI ARGUMENTS
+# GIVE YOUR FILE PATHS HERE
 # ============================================================
 
-parser = argparse.ArgumentParser(
-    description="Compare two PPTX files and generate a diff PPTX."
-)
+file1_path = r"C:\Users\YourName\Desktop\file1.pptx"
+file2_path = r"C:\Users\YourName\Desktop\file2.pptx"
 
-parser.add_argument("file1", help="Original PPTX")
-parser.add_argument("file2", help="Updated PPTX")
-parser.add_argument("output", help="Output diff PPTX")
-
-args = parser.parse_args()
-
-file1_path = args.file1
-file2_path = args.file2
-output_path = args.output
+output_path = r"C:\Users\YourName\Desktop\output_diff.pptx"
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
 
 FONT_NAME = "Calibri"
@@ -75,10 +46,8 @@ MAX_PARAGRAPHS_PER_SLIDE = 22
 
 
 # ============================================================
-# EXTRACT TEXT FROM FIRST PPT
+# READ FIRST PPT
 # ============================================================
-
-print(f"Reading: {file1_path}")
 
 prs1 = Presentation(file1_path)
 
@@ -88,7 +57,6 @@ for slide in prs1.slides:
 
     for shape in slide.shapes:
 
-        # Ignore non-text shapes
         if not hasattr(shape, "has_text_frame"):
             continue
 
@@ -102,7 +70,6 @@ for slide in prs1.slides:
             if text is None:
                 continue
 
-            # Normalize whitespace
             text = text.replace("\xa0", " ")
             text = unicodedata.normalize("NFKC", text)
             text = re.sub(r"\s+", " ", text).strip()
@@ -110,14 +77,10 @@ for slide in prs1.slides:
             if text:
                 text_stream_1.append(text)
 
-print(f"Extracted {len(text_stream_1)} text blocks from first PPT")
-
 
 # ============================================================
-# EXTRACT TEXT FROM SECOND PPT
+# READ SECOND PPT
 # ============================================================
-
-print(f"Reading: {file2_path}")
 
 prs2 = Presentation(file2_path)
 
@@ -147,14 +110,10 @@ for slide in prs2.slides:
             if text:
                 text_stream_2.append(text)
 
-print(f"Extracted {len(text_stream_2)} text blocks from second PPT")
-
 
 # ============================================================
-# GLOBAL DIFF COMPARISON
+# GLOBAL DIFF
 # ============================================================
-
-print("Performing ordered global comparison...")
 
 matcher = SequenceMatcher(None, text_stream_1, text_stream_2)
 
@@ -162,43 +121,33 @@ diff_items = []
 
 for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
-    # Unchanged text
     if tag == "equal":
 
         for text in text_stream_2[j1:j2]:
             diff_items.append(("equal", text))
 
-    # Added text
     elif tag == "insert":
 
         for text in text_stream_2[j1:j2]:
             diff_items.append(("insert", text))
 
-    # Removed text
     elif tag == "delete":
 
         for text in text_stream_1[i1:i2]:
             diff_items.append(("delete", text))
 
-    # Replaced text
     elif tag == "replace":
 
-        # Show removed content first
         for text in text_stream_1[i1:i2]:
             diff_items.append(("delete", text))
 
-        # Then inserted content
         for text in text_stream_2[j1:j2]:
             diff_items.append(("insert", text))
 
-print(f"Generated {len(diff_items)} diff entries")
-
 
 # ============================================================
-# CREATE OUTPUT POWERPOINT
+# CREATE OUTPUT PPT
 # ============================================================
-
-print(f"Generating output PPT: {output_path}")
 
 output_prs = Presentation()
 
@@ -216,19 +165,18 @@ textbox = slide.shapes.add_textbox(
 text_frame = textbox.text_frame
 text_frame.word_wrap = True
 
-# Remove default empty paragraph
 text_frame.paragraphs[0].text = ""
 
 paragraph_counter = 0
 
 
 # ============================================================
-# ADD DIFF CONTENT TO OUTPUT PPT
+# WRITE DIFF CONTENT
 # ============================================================
 
 for diff_type, text in diff_items:
 
-    # Pagination
+    # CREATE NEW SLIDE IF TOO MUCH CONTENT
     if paragraph_counter >= MAX_PARAGRAPHS_PER_SLIDE:
 
         slide = output_prs.slides.add_slide(blank_layout)
@@ -247,37 +195,31 @@ for diff_type, text in diff_items:
 
         paragraph_counter = 0
 
-    # Proper PowerPoint paragraph
+    # CREATE PROPER PARAGRAPH
     paragraph = text_frame.add_paragraph()
 
     paragraph.alignment = PP_ALIGN.LEFT
     paragraph.space_after = Pt(6)
 
-    # Single run inside paragraph
     run = paragraph.add_run()
     run.text = text
 
-    # Font settings
     run.font.name = FONT_NAME
     run.font.size = FONT_SIZE
 
-    # ========================================================
-    # APPLY DIFF FORMATTING
-    # ========================================================
-
-    # Unchanged
+    # UNCHANGED TEXT
     if diff_type == "equal":
 
         run.font.color.rgb = COLOR_BLACK
         run.font.strike = False
 
-    # Inserted
+    # ADDED TEXT
     elif diff_type == "insert":
 
         run.font.color.rgb = COLOR_BLUE
         run.font.strike = False
 
-    # Deleted
+    # REMOVED TEXT
     elif diff_type == "delete":
 
         run.font.color.rgb = COLOR_RED
@@ -292,5 +234,6 @@ for diff_type, text in diff_items:
 
 output_prs.save(output_path)
 
-print("Done.")
-print(f"Saved diff presentation to: {output_path}")
+print("DONE")
+print("Saved at:")
+print(output_path)
