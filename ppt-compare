@@ -1,28 +1,30 @@
 # ============================================================
-# BETTER PPTX DIFF TOOL
+# FINAL IMPROVED PPTX DIFF TOOL
 # ============================================================
 #
-# Improvements:
+# FIXES:
 #
-# 1. Red deleted text now has:
-#    - RED FONT
-#    - RED STRIKETHROUGH
+# 1. USES FILE 1 AS BASE
+#    -> same slides
+#    -> same layout
+#    -> same textboxes
+#    -> same formatting
 #
-# 2. Preserves formatting from FILE 1:
-#    - font size
-#    - bold
-#    - italic
-#    - font family
+# 2. GLOBAL COMPARISON
+#    -> NOT slide-by-slide
 #
-# 3. Keeps ORIGINAL ORDER
+# 3. INSERTED TEXT
+#    -> BLUE
 #
-# 4. Dynamically fits content:
-#    - auto pagination
-#    - adaptive textbox sizing
-#    - avoids giant unreadable slides
+# 4. DELETED TEXT
+#    -> RED + REAL STRIKETHROUGH
 #
-# 5. Uses ORIGINAL FILE 1 SLIDE STRUCTURE
-#    but still performs GLOBAL comparison
+# 5. AUTO TEXT FITTING
+#    -> prevents overflow outside slide
+#    -> dynamically creates overflow boxes
+#    -> dynamically creates new slides
+#
+# 6. PRESERVES ORDER
 #
 # ============================================================
 
@@ -31,14 +33,14 @@
 
 
 import re
-import copy
 import unicodedata
+
 from difflib import SequenceMatcher
 
 from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
+from pptx.util import Inches, Pt
+from pptx.enum.text import MSO_AUTO_SIZE
 
 
 # ============================================================
@@ -55,24 +57,28 @@ output_path = r"C:\Users\YourName\Desktop\output_diff.pptx"
 # COLORS
 # ============================================================
 
-BLACK = RGBColor(0, 0, 0)
-
 BLUE = RGBColor(40, 90, 200)
-
-RED = RGBColor(200, 40, 40)
+RED = RGBColor(220, 30, 30)
+BLACK = RGBColor(0, 0, 0)
 
 
 # ============================================================
-# READ FILE 1
+# LOAD PRESENTATIONS
 # ============================================================
 
 prs1 = Presentation(file1_path)
+prs2 = Presentation(file2_path)
+
+
+# ============================================================
+# EXTRACT GLOBAL STREAM FROM FILE 1
+# ============================================================
 
 stream1 = []
 
-for slide_index, slide in enumerate(prs1.slides):
+for slide_idx, slide in enumerate(prs1.slides):
 
-    for shape_index, shape in enumerate(slide.shapes):
+    for shape_idx, shape in enumerate(slide.shapes):
 
         if not hasattr(shape, "has_text_frame"):
             continue
@@ -80,29 +86,29 @@ for slide_index, slide in enumerate(prs1.slides):
         if not shape.has_text_frame:
             continue
 
-        for para_index, para in enumerate(shape.text_frame.paragraphs):
+        for para_idx, para in enumerate(shape.text_frame.paragraphs):
 
-            text = para.text
+            txt = para.text
 
-            if text is None:
+            if txt is None:
                 continue
 
-            text = text.replace("\xa0", " ")
-            text = unicodedata.normalize("NFKC", text)
-            text = re.sub(r"\s+", " ", text).strip()
+            txt = txt.replace("\xa0", " ")
+            txt = unicodedata.normalize("NFKC", txt)
+            txt = re.sub(r"\s+", " ", txt).strip()
 
-            if not text:
+            if not txt:
                 continue
 
-            # GET FORMATTING FROM FIRST RUN
+            # TAKE STYLE FROM FIRST RUN
             if len(para.runs) > 0:
 
-                r = para.runs[0]
+                run = para.runs[0]
 
-                font_name = r.font.name
-                font_size = r.font.size
-                bold = r.font.bold
-                italic = r.font.italic
+                font_name = run.font.name
+                font_size = run.font.size
+                bold = run.font.bold
+                italic = run.font.italic
 
             else:
 
@@ -112,7 +118,9 @@ for slide_index, slide in enumerate(prs1.slides):
                 italic = False
 
             stream1.append({
-                "text": text,
+                "text": txt,
+                "slide_idx": slide_idx,
+                "shape_idx": shape_idx,
                 "font_name": font_name,
                 "font_size": font_size,
                 "bold": bold,
@@ -121,10 +129,8 @@ for slide_index, slide in enumerate(prs1.slides):
 
 
 # ============================================================
-# READ FILE 2
+# EXTRACT GLOBAL STREAM FROM FILE 2
 # ============================================================
-
-prs2 = Presentation(file2_path)
 
 stream2 = []
 
@@ -140,30 +146,25 @@ for slide in prs2.slides:
 
         for para in shape.text_frame.paragraphs:
 
-            text = para.text
+            txt = para.text
 
-            if text is None:
+            if txt is None:
                 continue
 
-            text = text.replace("\xa0", " ")
-            text = unicodedata.normalize("NFKC", text)
-            text = re.sub(r"\s+", " ", text).strip()
+            txt = txt.replace("\xa0", " ")
+            txt = unicodedata.normalize("NFKC", txt)
+            txt = re.sub(r"\s+", " ", txt).strip()
 
-            if text:
-                stream2.append(text)
-
-
-# ============================================================
-# TEXT ONLY LISTS FOR DIFF
-# ============================================================
-
-text1 = [x["text"] for x in stream1]
-text2 = stream2
+            if txt:
+                stream2.append(txt)
 
 
 # ============================================================
 # GLOBAL DIFF
 # ============================================================
+
+text1 = [x["text"] for x in stream1]
+text2 = stream2
 
 matcher = SequenceMatcher(None, text1, text2)
 
@@ -177,14 +178,14 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
     if tag == "equal":
 
-        for i, text in enumerate(text2[j1:j2]):
+        for offset, txt in enumerate(text2[j1:j2]):
 
-            base_style = stream1[i1 + i]
+            base = stream1[i1 + offset]
 
             diff_items.append({
                 "type": "equal",
-                "text": text,
-                "style": base_style
+                "text": txt,
+                "base": base
             })
 
     # ========================================================
@@ -193,23 +194,14 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
     elif tag == "insert":
 
-        # USE PREVIOUS STYLE AS BASE
-        if i1 > 0:
-            style_ref = stream1[i1 - 1]
-        else:
-            style_ref = {
-                "font_name": "Calibri",
-                "font_size": Pt(18),
-                "bold": False,
-                "italic": False
-            }
+        anchor = max(i1 - 1, 0)
 
-        for text in text2[j1:j2]:
+        for txt in text2[j1:j2]:
 
             diff_items.append({
                 "type": "insert",
-                "text": text,
-                "style": style_ref
+                "text": txt,
+                "base": stream1[anchor]
             })
 
     # ========================================================
@@ -218,12 +210,12 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
     elif tag == "delete":
 
-        for i, item in enumerate(stream1[i1:i2]):
+        for base in stream1[i1:i2]:
 
             diff_items.append({
                 "type": "delete",
-                "text": item["text"],
-                "style": item
+                "text": base["text"],
+                "base": base
             })
 
     # ========================================================
@@ -232,99 +224,85 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
     elif tag == "replace":
 
-        # SHOW REMOVED FIRST
-        for item in stream1[i1:i2]:
+        for base in stream1[i1:i2]:
 
             diff_items.append({
                 "type": "delete",
-                "text": item["text"],
-                "style": item
+                "text": base["text"],
+                "base": base
             })
 
-        # SHOW INSERTED AFTER
-        if i1 > 0:
-            style_ref = stream1[i1 - 1]
-        else:
-            style_ref = {
-                "font_name": "Calibri",
-                "font_size": Pt(18),
-                "bold": False,
-                "italic": False
-            }
+        anchor = max(i1 - 1, 0)
 
-        for text in text2[j1:j2]:
+        for txt in text2[j1:j2]:
 
             diff_items.append({
                 "type": "insert",
-                "text": text,
-                "style": style_ref
+                "text": txt,
+                "base": stream1[anchor]
             })
 
 
 # ============================================================
-# CREATE OUTPUT PPT
+# CREATE OUTPUT USING FILE 1 AS BASE
 # ============================================================
 
-out = Presentation()
-
-blank_layout = out.slide_layouts[6]
+out = Presentation(file1_path)
 
 
 # ============================================================
-# DYNAMIC SLIDE CREATION
+# CLEAR ORIGINAL TEXT
 # ============================================================
 
-slide = out.slides.add_slide(blank_layout)
+for slide in out.slides:
 
-textbox = slide.shapes.add_textbox(
-    Inches(0.5),
-    Inches(0.4),
-    Inches(12.3),
-    Inches(6.5)
-)
+    for shape in slide.shapes:
 
-tf = textbox.text_frame
-tf.word_wrap = True
-
-tf.paragraphs[0].text = ""
+        if hasattr(shape, "has_text_frame") and shape.has_text_frame:
+            shape.text_frame.clear()
 
 
 # ============================================================
-# DYNAMIC FLOW CONTROL
+# TRACK TEXTBOX USAGE
 # ============================================================
 
-current_lines = 0
+shape_usage = {}
+
+
+# ============================================================
+# WRITE CONTENT
+# ============================================================
 
 for item in diff_items:
 
-    text = item["text"]
     diff_type = item["type"]
-    style = item["style"]
+    text = item["text"]
+    base = item["base"]
+
+    slide_idx = base["slide_idx"]
+    shape_idx = base["shape_idx"]
+
+    slide = out.slides[slide_idx]
 
     # ========================================================
-    # ESTIMATE HEIGHT
+    # GET ORIGINAL SHAPE
     # ========================================================
 
-    estimated_lines = max(1, int(len(text) / 80) + 1)
+    if shape_idx >= len(slide.shapes):
+        continue
 
-    # CREATE NEW SLIDE IF NEEDED
-    if current_lines + estimated_lines > 24:
+    shape = slide.shapes[shape_idx]
 
-        slide = out.slides.add_slide(blank_layout)
+    if not hasattr(shape, "has_text_frame"):
+        continue
 
-        textbox = slide.shapes.add_textbox(
-            Inches(0.5),
-            Inches(0.4),
-            Inches(12.3),
-            Inches(6.5)
-        )
+    if not shape.has_text_frame:
+        continue
 
-        tf = textbox.text_frame
-        tf.word_wrap = True
+    tf = shape.text_frame
 
-        tf.paragraphs[0].text = ""
-
-        current_lines = 0
+    tf.word_wrap = True
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     # ========================================================
     # CREATE PARAGRAPH
@@ -332,32 +310,29 @@ for item in diff_items:
 
     p = tf.add_paragraph()
 
-    p.alignment = PP_ALIGN.LEFT
-    p.space_after = Pt(5)
-
     r = p.add_run()
 
     r.text = text
 
     # ========================================================
-    # KEEP ORIGINAL FORMATTING
+    # ORIGINAL FORMATTING
     # ========================================================
 
-    r.font.name = style["font_name"]
+    r.font.name = base["font_name"]
 
-    if style["font_size"] is not None:
-        r.font.size = style["font_size"]
+    if base["font_size"] is not None:
+        r.font.size = base["font_size"]
     else:
         r.font.size = Pt(18)
 
-    r.font.bold = style["bold"]
-    r.font.italic = style["italic"]
+    r.font.bold = base["bold"]
+    r.font.italic = base["italic"]
 
     # ========================================================
     # COLORING
     # ========================================================
 
-    # NORMAL
+    # UNCHANGED
     if diff_type == "equal":
 
         r.font.color.rgb = BLACK
@@ -374,15 +349,60 @@ for item in diff_items:
 
         r.font.color.rgb = RED
 
-        # RED STRIKETHROUGH
-        r.font._element.set(
-            "{http://schemas.openxmlformats.org/drawingml/2006/main}strike",
-            "sngStrike"
-        )
-
+        # REAL STRIKETHROUGH
         r.font.strike = True
 
-    current_lines += estimated_lines
+    # ========================================================
+    # DYNAMIC OVERFLOW CONTROL
+    # ========================================================
+
+    estimated_chars = len(tf.text)
+
+    # IF TEXTBOX GETTING TOO FULL
+    if estimated_chars > 1800:
+
+        # CREATE OVERFLOW TEXTBOX BELOW
+        left = shape.left
+        top = shape.top + shape.height + Inches(0.1)
+
+        width = shape.width
+        height = Inches(2)
+
+        slide_height = out.slide_height
+
+        # IF OVERFLOW GOES OUTSIDE SLIDE
+        if top + height > slide_height:
+
+            blank_layout = out.slide_layouts[6]
+
+            new_slide = out.slides.add_slide(blank_layout)
+
+            overflow_box = new_slide.shapes.add_textbox(
+                Inches(0.5),
+                Inches(0.5),
+                width,
+                Inches(5)
+            )
+
+        else:
+
+            overflow_box = slide.shapes.add_textbox(
+                left,
+                top,
+                width,
+                height
+            )
+
+        overflow_tf = overflow_box.text_frame
+
+        overflow_tf.word_wrap = True
+        overflow_tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+        # MOVE CURRENT TEXT INTO NEW BOX
+        overflow_tf.text = tf.text
+
+        # CLEAR OLD BOX
+        tf.clear()
 
 
 # ============================================================
