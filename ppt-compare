@@ -1,34 +1,35 @@
 # ============================================================
-# FINAL IMPROVED PPTX DIFF TOOL
+# PPTX GLOBAL DIFF
+# PRESERVES ORIGINAL TEXTBOX POSITIONS
 # ============================================================
 #
-# FIXES:
+# WHAT THIS VERSION FIXES:
 #
-# 1. USES FILE 1 AS BASE
-#    -> same slides
-#    -> same layout
-#    -> same textboxes
-#    -> same formatting
+# 1. SAVES ORIGINAL TEXTBOX POSITION
+#    -> left
+#    -> top
+#    -> width
+#    -> height
 #
-# 2. GLOBAL COMPARISON
-#    -> NOT slide-by-slide
+# 2. SAVES ORIGINAL FORMATTING
 #
-# 3. INSERTED TEXT
-#    -> BLUE
+# 3. GLOBAL COMPARISON
+#    -> NOT slide-by-slide matching
 #
-# 4. DELETED TEXT
-#    -> RED + REAL STRIKETHROUGH
+# 4. WRITES TEXT BACK INTO CORRECT TEXTBOX
 #
-# 5. AUTO TEXT FITTING
-#    -> prevents overflow outside slide
-#    -> dynamically creates overflow boxes
-#    -> dynamically creates new slides
+# 5. INSERTED = BLUE
 #
-# 6. PRESERVES ORDER
+# 6. DELETED = RED + STRIKETHROUGH
+#
+# 7. OVERFLOW HANDLING
+#    -> creates new textbox BELOW ORIGINAL BOX
+#    -> keeps same width/style
+#    -> creates new slide if needed
 #
 # ============================================================
 
-# INSTALL ONCE
+# INSTALL ONCE:
 # !pip install python-pptx
 
 
@@ -57,13 +58,13 @@ output_path = r"C:\Users\YourName\Desktop\output_diff.pptx"
 # COLORS
 # ============================================================
 
+BLACK = RGBColor(0, 0, 0)
 BLUE = RGBColor(40, 90, 200)
 RED = RGBColor(220, 30, 30)
-BLACK = RGBColor(0, 0, 0)
 
 
 # ============================================================
-# LOAD PRESENTATIONS
+# LOAD PPTS
 # ============================================================
 
 prs1 = Presentation(file1_path)
@@ -72,6 +73,9 @@ prs2 = Presentation(file2_path)
 
 # ============================================================
 # EXTRACT GLOBAL STREAM FROM FILE 1
+# ALSO SAVE:
+# -> TEXTBOX POSITION
+# -> FORMATTING
 # ============================================================
 
 stream1 = []
@@ -100,27 +104,41 @@ for slide_idx, slide in enumerate(prs1.slides):
             if not txt:
                 continue
 
-            # TAKE STYLE FROM FIRST RUN
+            # DEFAULT STYLE
+            font_name = "Calibri"
+            font_size = Pt(18)
+            bold = False
+            italic = False
+
             if len(para.runs) > 0:
 
                 run = para.runs[0]
 
-                font_name = run.font.name
-                font_size = run.font.size
+                if run.font.name:
+                    font_name = run.font.name
+
+                if run.font.size:
+                    font_size = run.font.size
+
                 bold = run.font.bold
                 italic = run.font.italic
 
-            else:
-
-                font_name = "Calibri"
-                font_size = Pt(18)
-                bold = False
-                italic = False
-
             stream1.append({
+
+                # TEXT
                 "text": txt,
+
+                # LOCATION
                 "slide_idx": slide_idx,
                 "shape_idx": shape_idx,
+
+                # TEXTBOX POSITION
+                "left": shape.left,
+                "top": shape.top,
+                "width": shape.width,
+                "height": shape.height,
+
+                # STYLE
                 "font_name": font_name,
                 "font_size": font_size,
                 "bold": bold,
@@ -160,7 +178,7 @@ for slide in prs2.slides:
 
 
 # ============================================================
-# GLOBAL DIFF
+# GLOBAL COMPARISON
 # ============================================================
 
 text1 = [x["text"] for x in stream1]
@@ -189,7 +207,7 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             })
 
     # ========================================================
-    # INSERTED
+    # INSERT
     # ========================================================
 
     elif tag == "insert":
@@ -205,7 +223,7 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             })
 
     # ========================================================
-    # DELETED
+    # DELETE
     # ========================================================
 
     elif tag == "delete":
@@ -219,7 +237,7 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             })
 
     # ========================================================
-    # REPLACED
+    # REPLACE
     # ========================================================
 
     elif tag == "replace":
@@ -244,7 +262,7 @@ for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 
 
 # ============================================================
-# CREATE OUTPUT USING FILE 1 AS BASE
+# CREATE OUTPUT USING FILE 1
 # ============================================================
 
 out = Presentation(file1_path)
@@ -263,14 +281,14 @@ for slide in out.slides:
 
 
 # ============================================================
-# TRACK TEXTBOX USAGE
+# TRACK TEXTBOXES
 # ============================================================
 
-shape_usage = {}
+textbox_map = {}
 
 
 # ============================================================
-# WRITE CONTENT
+# WRITE BACK INTO CORRECT TEXTBOX
 # ============================================================
 
 for item in diff_items:
@@ -280,29 +298,40 @@ for item in diff_items:
     base = item["base"]
 
     slide_idx = base["slide_idx"]
-    shape_idx = base["shape_idx"]
 
     slide = out.slides[slide_idx]
 
+    textbox_key = (
+        slide_idx,
+        base["left"],
+        base["top"]
+    )
+
     # ========================================================
-    # GET ORIGINAL SHAPE
+    # CREATE TEXTBOX ONCE
     # ========================================================
 
-    if shape_idx >= len(slide.shapes):
-        continue
+    if textbox_key not in textbox_map:
 
-    shape = slide.shapes[shape_idx]
+        textbox = slide.shapes.add_textbox(
+            base["left"],
+            base["top"],
+            base["width"],
+            base["height"]
+        )
 
-    if not hasattr(shape, "has_text_frame"):
-        continue
+        tf = textbox.text_frame
 
-    if not shape.has_text_frame:
-        continue
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
-    tf = shape.text_frame
+        tf.clear()
 
-    tf.word_wrap = True
-    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        textbox_map[textbox_key] = textbox
+
+    textbox = textbox_map[textbox_key]
+
+    tf = textbox.text_frame
 
     # ========================================================
     # CREATE PARAGRAPH
@@ -310,87 +339,77 @@ for item in diff_items:
 
     p = tf.add_paragraph()
 
-    r = p.add_run()
+    run = p.add_run()
 
-    r.text = text
+    run.text = text
 
     # ========================================================
-    # ORIGINAL FORMATTING
+    # ORIGINAL STYLE
     # ========================================================
 
-    r.font.name = base["font_name"]
+    run.font.name = base["font_name"]
 
-    if base["font_size"] is not None:
-        r.font.size = base["font_size"]
+    if base["font_size"]:
+        run.font.size = base["font_size"]
     else:
-        r.font.size = Pt(18)
+        run.font.size = Pt(18)
 
-    r.font.bold = base["bold"]
-    r.font.italic = base["italic"]
+    run.font.bold = base["bold"]
+    run.font.italic = base["italic"]
 
     # ========================================================
-    # COLORING
+    # COLORS
     # ========================================================
 
-    # UNCHANGED
     if diff_type == "equal":
 
-        r.font.color.rgb = BLACK
-        r.font.strike = False
+        run.font.color.rgb = BLACK
+        run.font.strike = False
 
-    # INSERTED
     elif diff_type == "insert":
 
-        r.font.color.rgb = BLUE
-        r.font.strike = False
+        run.font.color.rgb = BLUE
+        run.font.strike = False
 
-    # DELETED
     elif diff_type == "delete":
 
-        r.font.color.rgb = RED
-
-        # REAL STRIKETHROUGH
-        r.font.strike = True
+        run.font.color.rgb = RED
+        run.font.strike = True
 
     # ========================================================
-    # DYNAMIC OVERFLOW CONTROL
+    # OVERFLOW HANDLING
     # ========================================================
 
-    estimated_chars = len(tf.text)
+    if len(tf.text) > 1800:
 
-    # IF TEXTBOX GETTING TOO FULL
-    if estimated_chars > 1800:
-
-        # CREATE OVERFLOW TEXTBOX BELOW
-        left = shape.left
-        top = shape.top + shape.height + Inches(0.1)
-
-        width = shape.width
-        height = Inches(2)
+        overflow_top = base["top"] + base["height"] + Inches(0.1)
 
         slide_height = out.slide_height
 
-        # IF OVERFLOW GOES OUTSIDE SLIDE
-        if top + height > slide_height:
+        # ====================================================
+        # IF OUTSIDE SLIDE -> CREATE NEW SLIDE
+        # ====================================================
 
-            blank_layout = out.slide_layouts[6]
+        if overflow_top + Inches(2) > slide_height:
 
-            new_slide = out.slides.add_slide(blank_layout)
+            layout = out.slide_layouts[0]
+
+            new_slide = out.slides.add_slide(layout)
 
             overflow_box = new_slide.shapes.add_textbox(
                 Inches(0.5),
                 Inches(0.5),
-                width,
+                base["width"],
                 Inches(5)
             )
 
         else:
 
             overflow_box = slide.shapes.add_textbox(
-                left,
-                top,
-                width,
-                height
+                base["left"],
+                overflow_top,
+                base["width"],
+                Inches(2)
             )
 
         overflow_tf = overflow_box.text_frame
@@ -398,10 +417,8 @@ for item in diff_items:
         overflow_tf.word_wrap = True
         overflow_tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
-        # MOVE CURRENT TEXT INTO NEW BOX
         overflow_tf.text = tf.text
 
-        # CLEAR OLD BOX
         tf.clear()
 
 
