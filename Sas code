@@ -1,0 +1,13 @@
+proc sql noprint;
+    select name
+    into :col_list separated by ', '
+    from dictionary.columns
+    where libname = 'POST'
+        and memname = 'RNDPRM'
+        and prxmatch('/^z.*_var.*/i', name);
+quit;
+
+proc sql;
+    select &col_list
+    from post.rndprm;
+quit;
