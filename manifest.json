@@ -2,11 +2,12 @@
   "manifest_version": 3,
   "name": "Confluence Section Expander & Exporter",
   "version": "1.0",
-  "description": "Expands Confluence sections and exports clean static HTML.",
+  "description": "Expands specified sections in Confluence and saves page as MHTML.",
   "permissions": [
     "activeTab",
     "scripting",
-    "downloads"
+    "downloads",
+    "pageCapture"
   ],
   "host_permissions": [
     "<all_urls>"
